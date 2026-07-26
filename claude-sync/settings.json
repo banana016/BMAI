@@ -1,0 +1,25 @@
+{
+  "enabledPlugins": {
+    "claude-hud@claude-hud": true,
+    "notion@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-hud": {
+      "source": {
+        "source": "github",
+        "repo": "jarrodwatts/claude-hud"
+      }
+    }
+  },
+  "permissions": {
+    "allow": [
+      "mcp__plugin_Notion_notion__*",
+      "mcp__playwright__*",
+      "mcp__supabase__*",
+      "mcp__context7__*",
+      "mcp__chrome-devtools__*",
+      "mcp__youtube-transcript__*"
+    ]
+  },
+  "theme": "dark"
+}
