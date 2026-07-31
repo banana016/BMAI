@@ -6,114 +6,22 @@ import type {
   WorkbookDiagnosticsResult,
 } from "@/types/workbook";
 import { extractStoreNameFromFileName } from "./file-name";
-import {
-  OVERVIEW_SHEET_NAME,
-  SHEET_CONFIGS,
-  normalizeHeaderCell,
-  rowMatchesHeaderTokens,
-  type SheetConfig,
-} from "./sheet-config";
+import { OVERVIEW_SHEET_NAME, SHEET_CONFIGS, normalizeHeaderCell, type SheetConfig } from "./sheet-config";
 import { DateRangeAccumulator, parseFlexibleDateCell } from "./date-utils";
 import { extractOverviewImages } from "./image-extractor";
-
-type AoaRow = unknown[];
-
-function rowHasContent(row: AoaRow | undefined): boolean {
-  return !!row && row.some((c) => c !== null && c !== undefined && String(c).trim() !== "");
-}
-
-function countDataRows(aoa: AoaRow[], headerRowIndex: number): number {
-  let lastNonEmpty = headerRowIndex;
-  for (let i = headerRowIndex + 1; i < aoa.length; i++) {
-    if (rowHasContent(aoa[i])) lastNonEmpty = i;
-  }
-  return lastNonEmpty - headerRowIndex;
-}
-
-interface HeaderLocation {
-  rowIndex: number | null;
-  isFallback: boolean;
-  warnings: string[];
-}
-
-// SheetJS trims the exported array-of-arrays to the sheet's used range, so
-// aoa[0] is not necessarily spreadsheet row 1 — it's whatever row the used
-// range actually starts at (often the header itself, or one description row
-// above it). Absolute row numbers must add this offset back in, and the fast
-// path / search window need it subtracted before indexing into aoa.
-const HEADER_SCAN_FALLBACK_ROWS = 60;
-
-function locateHeaderRow(aoa: AoaRow[], config: SheetConfig, rowOffset: number): HeaderLocation {
-  const warnings: string[] = [];
-
-  const fastIdx = config.expectedHeaderRow - 1 - rowOffset;
-  if (fastIdx >= 0) {
-    const fastMatch = rowMatchesHeaderTokens(aoa[fastIdx], config.headerTokens, config.matchThreshold);
-    if (fastMatch.matches) {
-      return { rowIndex: fastIdx, isFallback: false, warnings };
-    }
-  }
-
-  const [start, end] = config.headerSearchWindow;
-  const windowStart = Math.max(0, start - 1 - rowOffset);
-  const windowEnd = Math.min(end - 1 - rowOffset, aoa.length - 1, HEADER_SCAN_FALLBACK_ROWS - 1);
-  for (let r = windowStart; r <= windowEnd; r++) {
-    if (r === fastIdx) continue;
-    const match = rowMatchesHeaderTokens(aoa[r], config.headerTokens, config.matchThreshold);
-    if (match.matches) {
-      warnings.push(
-        `${config.expectedName}: 예상 헤더 행(${config.expectedHeaderRow})이 아닌 ${r + rowOffset + 1}행에서 헤더를 찾았습니다.`
-      );
-      return { rowIndex: r, isFallback: true, warnings };
-    }
-  }
-
-  // Last resort: the used range often starts right at (or just above) the
-  // header, so scan from the very top of the sheet's data regardless of the
-  // configured window.
-  const wideEnd = Math.min(HEADER_SCAN_FALLBACK_ROWS - 1, aoa.length - 1);
-  for (let r = 0; r <= wideEnd; r++) {
-    if (r === fastIdx || (r >= windowStart && r <= windowEnd)) continue;
-    const match = rowMatchesHeaderTokens(aoa[r], config.headerTokens, config.matchThreshold);
-    if (match.matches) {
-      warnings.push(
-        `${config.expectedName}: 예상 헤더 행(${config.expectedHeaderRow})이 아닌 ${r + rowOffset + 1}행에서 헤더를 찾았습니다.`
-      );
-      return { rowIndex: r, isFallback: true, warnings };
-    }
-  }
-
-  if (fastIdx >= 0 && rowHasContent(aoa[fastIdx])) {
-    warnings.push(
-      `${config.expectedName}: 헤더 문자열을 확인하지 못해 기본 헤더 행(${config.expectedHeaderRow})을 그대로 사용합니다.`
-    );
-    return { rowIndex: fastIdx, isFallback: true, warnings };
-  }
-
-  if (rowHasContent(aoa[0])) {
-    warnings.push(`${config.expectedName}: 헤더 문자열을 확인하지 못해 시트의 첫 데이터 행을 헤더로 간주합니다.`);
-    return { rowIndex: 0, isFallback: true, warnings };
-  }
-
-  return {
-    rowIndex: null,
-    isFallback: true,
-    warnings: [`${config.expectedName}: 헤더 행을 찾을 수 없습니다 (예상: ${config.expectedHeaderRow}행 부근).`],
-  };
-}
+import { findSheetByName, locateSheet, type AoaRow } from "./sheet-rows";
 
 function locateDateColumnIndex(
-  aoa: AoaRow[],
-  headerRowIndex: number,
+  headerRow: AoaRow,
+  dataRows: AoaRow[],
   candidates: string[]
 ): { index: number | null } {
-  const headerRow = aoa[headerRowIndex] ?? [];
   for (const candidate of candidates) {
     const idx = headerRow.findIndex((c) => normalizeHeaderCell(c) === candidate);
     if (idx !== -1) return { index: idx };
   }
 
-  const sampleRows = aoa.slice(headerRowIndex + 1, headerRowIndex + 1 + 30);
+  const sampleRows = dataRows.slice(0, 30);
   const colCount = Math.max(headerRow.length, ...sampleRows.map((r) => r.length), 0);
   for (let c = 0; c < colCount; c++) {
     let matches = 0;
@@ -130,15 +38,10 @@ function locateDateColumnIndex(
 }
 
 function diagnoseSheet(ws: XLSX.WorkSheet, config: SheetConfig): SheetDiagnostic {
-  const warnings: string[] = [];
   const errors: string[] = [];
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }) as AoaRow[];
-  const rowOffset = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"] as string).s.r : 0;
+  const located = locateSheet(ws, config);
 
-  const headerLoc = locateHeaderRow(aoa, config, rowOffset);
-  warnings.push(...headerLoc.warnings);
-
-  if (headerLoc.rowIndex === null) {
+  if (located === null) {
     errors.push(`${config.expectedName} 시트에서 헤더를 확인할 수 없습니다.`);
     return {
       key: config.key,
@@ -151,22 +54,22 @@ function diagnoseSheet(ws: XLSX.WorkSheet, config: SheetConfig): SheetDiagnostic
       dateRange: null,
       requiredColumnsChecked: false,
       missingRequiredColumns: [],
-      warnings,
+      warnings: [],
       errors,
     };
   }
 
-  const headerRowIndex = headerLoc.rowIndex;
-  const headerRow = aoa[headerRowIndex] ?? [];
-  const dataRowCount = countDataRows(aoa, headerRowIndex);
+  const warnings: string[] = [...located.warnings];
+  const { headerRow, headerRowIndex, rowOffset, dataRows } = located;
+  const dataRowCount = dataRows.length;
   if (dataRowCount === 0) warnings.push(`${config.expectedName}: 데이터 행이 없습니다.`);
 
-  const dateLoc = locateDateColumnIndex(aoa, headerRowIndex, config.dateColumnCandidates);
+  const dateLoc = locateDateColumnIndex(headerRow, dataRows, config.dateColumnCandidates);
   let dateRange: { min: string; max: string } | null = null;
   if (dateLoc.index !== null) {
     const acc = new DateRangeAccumulator();
-    for (let r = headerRowIndex + 1; r < aoa.length; r++) {
-      acc.add(aoa[r]?.[dateLoc.index]);
+    for (const row of dataRows) {
+      acc.add(row?.[dateLoc.index]);
     }
     dateRange = acc.range;
     if (!dateRange) warnings.push(`${config.expectedName}: 날짜 열을 찾았지만 유효한 날짜 값이 없습니다.`);
@@ -189,7 +92,7 @@ function diagnoseSheet(ws: XLSX.WorkSheet, config: SheetConfig): SheetDiagnostic
     expectedName: config.expectedName,
     found: true,
     headerRow: headerRowIndex + rowOffset + 1,
-    headerRowIsFallback: headerLoc.isFallback,
+    headerRowIsFallback: located.headerRowIsFallback,
     dataStartRow: headerRowIndex + rowOffset + 2,
     dataRowCount,
     dateRange,
@@ -207,7 +110,7 @@ async function diagnoseOverview(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const sheetName = workbook.SheetNames.find((n) => n.normalize("NFC") === OVERVIEW_SHEET_NAME);
+  const sheetName = findSheetByName(workbook, OVERVIEW_SHEET_NAME);
   if (!sheetName) {
     errors.push(`"${OVERVIEW_SHEET_NAME}" 시트를 찾을 수 없습니다.`);
     return { overview: null, errors };
@@ -307,7 +210,7 @@ export async function diagnoseWorkbook(
 
   const sheets: SheetDiagnostic[] = [];
   for (const config of SHEET_CONFIGS) {
-    const sheetName = workbook.SheetNames.find((n) => n.normalize("NFC") === config.expectedName);
+    const sheetName = findSheetByName(workbook, config.expectedName);
     if (!sheetName) {
       errors.push(`"${config.expectedName}" 시트를 찾을 수 없습니다.`);
       sheets.push({
