@@ -2,7 +2,14 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { DiagnosticSeverity, WorkbookDiagnosticsResult } from "@/types/workbook";
-import type { NormalizedAdRow, NormalizedSalesRow } from "@/types/normalized";
+import type {
+  NormalizedAdRow,
+  NormalizedCustomerRow,
+  NormalizedReviewRow,
+  NormalizedSalesRow,
+  NormalizedSearchRow,
+  NormalizedTrafficRow,
+} from "@/types/normalized";
 import type { DateRange } from "@/lib/metrics/period";
 import { Dashboard } from "@/components/dashboard/Dashboard";
 
@@ -10,6 +17,10 @@ type Status = "idle" | "parsing" | "done";
 
 interface DashboardData {
   salesRows: NormalizedSalesRow[];
+  trafficRows: NormalizedTrafficRow[];
+  searchRows: NormalizedSearchRow[];
+  customerRows: NormalizedCustomerRow[];
+  reviewRows: NormalizedReviewRow[];
   adRows: NormalizedAdRow[];
   availableRange: DateRange;
 }
@@ -62,14 +73,30 @@ export function WorkbookUploader() {
 
       const salesDateRange = diagnostics.sheets.find((s) => s.key === "sales")?.dateRange;
       if (diagnostics.overallStatus !== "error" && salesDateRange) {
-        const [XLSX, { normalizeSalesRows }, { normalizeAdRows }] = await Promise.all([
+        const [
+          XLSX,
+          { normalizeSalesRows },
+          { normalizeTrafficRows },
+          { normalizeSearchRows },
+          { normalizeCustomerRows },
+          { normalizeReviewRows },
+          { normalizeAdRows },
+        ] = await Promise.all([
           import("xlsx"),
           import("@/lib/normalize/sales"),
+          import("@/lib/normalize/traffic"),
+          import("@/lib/normalize/search"),
+          import("@/lib/normalize/customers"),
+          import("@/lib/normalize/reviews"),
           import("@/lib/normalize/ads"),
         ]);
         const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
         setDashboardData({
           salesRows: normalizeSalesRows(workbook).rows,
+          trafficRows: normalizeTrafficRows(workbook).rows,
+          searchRows: normalizeSearchRows(workbook).rows,
+          customerRows: normalizeCustomerRows(workbook).rows,
+          reviewRows: normalizeReviewRows(workbook).rows,
           adRows: normalizeAdRows(workbook).rows,
           availableRange: { start: salesDateRange.min, end: salesDateRange.max },
         });
@@ -140,6 +167,10 @@ export function WorkbookUploader() {
       {dashboardData && (
         <Dashboard
           salesRows={dashboardData.salesRows}
+          trafficRows={dashboardData.trafficRows}
+          searchRows={dashboardData.searchRows}
+          customerRows={dashboardData.customerRows}
+          reviewRows={dashboardData.reviewRows}
           adRows={dashboardData.adRows}
           availableRange={dashboardData.availableRange}
         />

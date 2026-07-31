@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { NormalizedAdRow, NormalizedSalesRow } from "@/types/normalized";
+import type {
+  NormalizedAdRow,
+  NormalizedCustomerRow,
+  NormalizedReviewRow,
+  NormalizedSalesRow,
+  NormalizedSearchRow,
+  NormalizedTrafficRow,
+} from "@/types/normalized";
 import type { CoreKpiKey, KpiTargets } from "@/types/dashboard";
 import { defaultRecentPeriod, type DateRange } from "@/lib/metrics/period";
 import { buildDashboardSummary } from "@/lib/scoring/dashboard";
@@ -11,16 +18,48 @@ import { PeriodSelector } from "./PeriodSelector";
 import { KpiCard } from "./KpiCard";
 import { HealthScore } from "./HealthScore";
 import { KpiRadar } from "./KpiRadar";
+import { TrafficDetail } from "./TrafficDetail";
+import { SearchDetail } from "./SearchDetail";
+import { AdsDetail } from "./AdsDetail";
+import { CustomersDetail } from "./CustomersDetail";
+import { ReviewsDetail } from "./ReviewsDetail";
+import { buildInsightContext } from "@/lib/insights/context";
+import { generateInsights } from "@/lib/insights/rules";
+import { PriorityTop3 } from "./PriorityTop3";
+import { InsightPanel } from "./InsightPanel";
 
 interface DashboardProps {
   salesRows: NormalizedSalesRow[];
+  trafficRows: NormalizedTrafficRow[];
+  searchRows: NormalizedSearchRow[];
+  customerRows: NormalizedCustomerRow[];
+  reviewRows: NormalizedReviewRow[];
   adRows: NormalizedAdRow[];
   availableRange: DateRange;
 }
 
-export function Dashboard({ salesRows, adRows, availableRange }: DashboardProps) {
+const DETAIL_TABS = [
+  { key: "traffic", label: "유입경로" },
+  { key: "search", label: "검색어" },
+  { key: "ads", label: "광고" },
+  { key: "customers", label: "고객" },
+  { key: "reviews", label: "리뷰" },
+] as const;
+
+type DetailTabKey = (typeof DETAIL_TABS)[number]["key"];
+
+export function Dashboard({
+  salesRows,
+  trafficRows,
+  searchRows,
+  customerRows,
+  reviewRows,
+  adRows,
+  availableRange,
+}: DashboardProps) {
   const [range, setRange] = useState<DateRange>(() => defaultRecentPeriod(availableRange, 30));
   const [targetInputs, setTargetInputs] = useState<Partial<Record<CoreKpiKey, string>>>({});
+  const [activeTab, setActiveTab] = useState<DetailTabKey>("traffic");
 
   const targets: KpiTargets = useMemo(() => {
     const result: KpiTargets = {};
@@ -37,6 +76,11 @@ export function Dashboard({ salesRows, adRows, availableRange }: DashboardProps)
     () => buildDashboardSummary(salesRows, adRows, range, targets),
     [salesRows, adRows, range, targets]
   );
+
+  const insights = useMemo(() => {
+    const context = buildInsightContext(summary, adRows, customerRows, reviewRows);
+    return generateInsights(context);
+  }, [summary, adRows, customerRows, reviewRows]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -60,6 +104,38 @@ export function Dashboard({ salesRows, adRows, availableRange }: DashboardProps)
       </div>
 
       <KpiRadar kpis={summary.kpis} />
+
+      <div>
+        <div className="mb-4 flex flex-wrap gap-2 border-b border-zinc-200 dark:border-zinc-800">
+          {DETAIL_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-3 py-2 text-sm font-medium ${
+                activeTab === tab.key
+                  ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
+                  : "text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "traffic" && <TrafficDetail rows={trafficRows} range={range} />}
+        {activeTab === "search" && <SearchDetail rows={searchRows} range={range} />}
+        {activeTab === "ads" && <AdsDetail rows={adRows} range={range} />}
+        {activeTab === "customers" && <CustomersDetail rows={customerRows} range={range} />}
+        {activeTab === "reviews" && <ReviewsDetail rows={reviewRows} range={range} />}
+      </div>
+
+      <PriorityTop3 insights={insights} />
+
+      <div>
+        <p className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">인사이트 패널</p>
+        <InsightPanel insights={insights} />
+      </div>
     </div>
   );
 }
