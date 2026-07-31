@@ -7,6 +7,7 @@ import type {
 } from "@/types/workbook";
 import { extractStoreNameFromFileName } from "./file-name";
 import { OVERVIEW_SHEET_NAME, SHEET_CONFIGS, normalizeHeaderCell, type SheetConfig } from "./sheet-config";
+import { resolveAliases } from "./header-aliases";
 import { DateRangeAccumulator, parseFlexibleDateCell } from "./date-utils";
 import { extractOverviewImages } from "./image-extractor";
 import { findSheetByName, locateSheet, type AoaRow } from "./sheet-rows";
@@ -81,7 +82,9 @@ function diagnoseSheet(ws: XLSX.WorkSheet, config: SheetConfig): SheetDiagnostic
   const requiredColumnsChecked = !!config.requiredColumns;
   if (config.requiredColumns) {
     const headerCellSet = new Set(headerRow.map(normalizeHeaderCell));
-    missingRequiredColumns = config.requiredColumns.filter((c) => !headerCellSet.has(c));
+    missingRequiredColumns = config.requiredColumns.filter(
+      (c) => !resolveAliases(c).some((alias) => headerCellSet.has(alias))
+    );
     if (missingRequiredColumns.length > 0) {
       errors.push(`${config.expectedName}: 필수 열 누락 - ${missingRequiredColumns.join(", ")}`);
     }

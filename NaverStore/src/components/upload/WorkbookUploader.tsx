@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiagnosticSeverity, WorkbookDiagnosticsResult } from "@/types/workbook";
 import type {
   NormalizedAdRow,
@@ -11,7 +11,10 @@ import type {
   NormalizedTrafficRow,
 } from "@/types/normalized";
 import type { DateRange } from "@/lib/metrics/period";
+import type { WorkerRequest, WorkerResponse, WorkerStage } from "@/workers/workbook-worker";
 import { Dashboard } from "@/components/dashboard/Dashboard";
+import { logEvent } from "@/lib/audit/session-log";
+import { SessionAuditLog } from "./SessionAuditLog";
 
 type Status = "idle" | "parsing" | "done";
 
@@ -32,6 +35,18 @@ const STATUS_STYLES: Record<DiagnosticSeverity, { label: string; className: stri
   error: { label: "검증 실패", className: "border-red-600 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300" },
 };
 
+const STAGE_LABELS: Record<WorkerStage, string> = {
+  reading: "파일 읽는 중",
+  diagnosing: "구조 검증 중",
+  normalizing: "데이터 정규화 중",
+};
+const STAGE_ORDER: WorkerStage[] = ["reading", "diagnosing", "normalizing"];
+
+// Parsing/normalizing runs off the main thread (see workbook-worker.ts), so
+// large files don't freeze the UI. This threshold only controls whether we
+// warn the user it may take a while — it never blocks the upload.
+const LARGE_FILE_WARNING_BYTES = 30 * 1024 * 1024;
+
 function formatDateRange(range: { min: string; max: string } | null): string {
   if (!range) return "-";
   return range.min === range.max ? range.min : `${range.min} ~ ${range.max}`;
@@ -39,17 +54,28 @@ function formatDateRange(range: { min: string; max: string } | null): string {
 
 export function WorkbookUploader() {
   const [status, setStatus] = useState<Status>("idle");
+  const [stage, setStage] = useState<WorkerStage | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [result, setResult] = useState<WorkbookDiagnosticsResult | null>(null);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [sizeWarning, setSizeWarning] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const workerRef = useRef<Worker | null>(null);
+
+  useEffect(() => {
+    return () => workerRef.current?.terminate();
+  }, []);
 
   const handleFile = useCallback(async (file: File) => {
     setStatus("parsing");
+    setStage(null);
     setFatalError(null);
     setResult(null);
     setDashboardData(null);
+    setSizeWarning(
+      file.size > LARGE_FILE_WARNING_BYTES ? "파일 용량이 커서 분석에 다소 시간이 걸릴 수 있습니다." : null
+    );
 
     if (!file.name.toLowerCase().endsWith(".xlsx")) {
       setStatus("done");
@@ -67,47 +93,62 @@ export function WorkbookUploader() {
     }
 
     try {
-      const { diagnoseWorkbook } = await import("@/lib/workbook/parser");
       const buffer = await file.arrayBuffer();
-      const diagnostics = await diagnoseWorkbook(buffer, file.name);
-      setResult(diagnostics);
 
-      const salesDateRange = diagnostics.sheets.find((s) => s.key === "sales")?.dateRange;
-      if (diagnostics.overallStatus !== "error" && salesDateRange) {
-        const [
-          XLSX,
-          { normalizeSalesRows },
-          { normalizeTrafficRows },
-          { normalizeSearchRows },
-          { normalizeCustomerRows },
-          { normalizeReviewRows },
-          { normalizeAdRows },
-        ] = await Promise.all([
-          import("xlsx"),
-          import("@/lib/normalize/sales"),
-          import("@/lib/normalize/traffic"),
-          import("@/lib/normalize/search"),
-          import("@/lib/normalize/customers"),
-          import("@/lib/normalize/reviews"),
-          import("@/lib/normalize/ads"),
-        ]);
-        const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+      workerRef.current?.terminate();
+      const worker = new Worker(new URL("../../workers/workbook-worker.ts", import.meta.url), { type: "module" });
+      workerRef.current = worker;
+
+      const response = await new Promise<Exclude<WorkerResponse, { type: "progress" }>>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+          if (event.data.type === "progress") {
+            setStage(event.data.stage);
+          } else {
+            resolve(event.data);
+          }
+        };
+        worker.onerror = (event) => reject(new Error(event.message || "워커에서 오류가 발생했습니다."));
+        const request: WorkerRequest = { arrayBuffer: buffer, fileName: file.name };
+        worker.postMessage(request, [buffer]);
+      });
+
+      if (response.type === "error") {
+        setFatalError(response.message);
+        logEvent("업로드 실패", file.name);
+        return;
+      }
+
+      setResult(response.diagnostics);
+      logEvent("파일 업로드", `${file.name} · ${response.diagnostics.overallStatus}`);
+      const salesDateRange = response.diagnostics.sheets.find((s) => s.key === "sales")?.dateRange;
+      if (response.normalized && salesDateRange) {
         setDashboardData({
-          storeName: diagnostics.storeName,
-          salesRows: normalizeSalesRows(workbook).rows,
-          trafficRows: normalizeTrafficRows(workbook).rows,
-          searchRows: normalizeSearchRows(workbook).rows,
-          customerRows: normalizeCustomerRows(workbook).rows,
-          reviewRows: normalizeReviewRows(workbook).rows,
-          adRows: normalizeAdRows(workbook).rows,
+          storeName: response.diagnostics.storeName,
+          ...response.normalized,
           availableRange: { start: salesDateRange.min, end: salesDateRange.max },
         });
       }
     } catch (e) {
       setFatalError(e instanceof Error ? e.message : String(e));
+      logEvent("업로드 실패", file.name);
     } finally {
       setStatus("done");
+      setStage(null);
+      workerRef.current?.terminate();
+      workerRef.current = null;
     }
+  }, []);
+
+  const handleClearSession = useCallback(() => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    setStatus("idle");
+    setStage(null);
+    setResult(null);
+    setDashboardData(null);
+    setFatalError(null);
+    setSizeWarning(null);
+    logEvent("세션 데이터 지우기");
   }, []);
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,8 +195,23 @@ export function WorkbookUploader() {
         <input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={onInputChange} />
       </div>
 
+      {sizeWarning && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-center text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          {sizeWarning}
+        </div>
+      )}
+
       {status === "parsing" && (
-        <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">파일을 검증하는 중입니다...</p>
+        <div className="flex flex-col items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+          <ol className="flex gap-3">
+            {STAGE_ORDER.map((s, i) => (
+              <li key={s} className={stage === s ? "font-semibold text-zinc-900 dark:text-zinc-100" : ""}>
+                {i > 0 && <span className="mr-3 text-zinc-300 dark:text-zinc-600">→</span>}
+                {STAGE_LABELS[s]}
+              </li>
+            ))}
+          </ol>
+        </div>
       )}
 
       {fatalError && (
@@ -170,6 +226,16 @@ export function WorkbookUploader() {
         </div>
       )}
 
+      {(result || dashboardData) && (
+        <button
+          type="button"
+          onClick={handleClearSession}
+          className="self-start rounded-full border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 print:hidden dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+        >
+          세션 데이터 지우기
+        </button>
+      )}
+
       {dashboardData && (
         <Dashboard
           storeName={dashboardData.storeName}
@@ -182,6 +248,8 @@ export function WorkbookUploader() {
           availableRange={dashboardData.availableRange}
         />
       )}
+
+      <SessionAuditLog />
     </div>
   );
 }

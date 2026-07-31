@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { rowMatchesHeaderTokens, type SheetConfig } from "./sheet-config";
+import { resolveAliases } from "./header-aliases";
 
 export type AoaRow = unknown[];
 
@@ -38,6 +39,20 @@ export function columnIndex(headerRow: AoaRow, headerText: string): number {
   return headerRow.findIndex((c) => String(c ?? "").trim() === headerText);
 }
 
+export interface ResolvedColumn {
+  index: number;
+  matchedAlias: string;
+}
+
+/** Alias-aware column lookup: tries the canonical field name first, then any known alternates (see header-aliases.ts). */
+export function resolveColumnIndex(headerRow: AoaRow, canonicalField: string): ResolvedColumn | null {
+  for (const alias of resolveAliases(canonicalField)) {
+    const index = columnIndex(headerRow, alias);
+    if (index !== -1) return { index, matchedAlias: alias };
+  }
+  return null;
+}
+
 export interface HeaderLocation {
   rowIndex: number | null;
   isFallback: boolean;
@@ -46,6 +61,13 @@ export interface HeaderLocation {
 
 const HEADER_SCAN_FALLBACK_ROWS = 60;
 
+function aliasHitWarnings(config: SheetConfig, aliasHits: Array<{ token: string; matchedAlias: string }>): string[] {
+  return aliasHits.map(
+    (hit) =>
+      `${config.expectedName}: '${hit.token}' 필드가 표준 명칭 대신 '${hit.matchedAlias}' 별칭으로 매칭되었습니다 (템플릿 버전 차이 가능).`
+  );
+}
+
 export function locateHeaderRow(aoa: AoaRow[], config: SheetConfig, rowOffset: number): HeaderLocation {
   const warnings: string[] = [];
 
@@ -53,7 +75,7 @@ export function locateHeaderRow(aoa: AoaRow[], config: SheetConfig, rowOffset: n
   if (fastIdx >= 0) {
     const fastMatch = rowMatchesHeaderTokens(aoa[fastIdx], config.headerTokens, config.matchThreshold);
     if (fastMatch.matches) {
-      return { rowIndex: fastIdx, isFallback: false, warnings };
+      return { rowIndex: fastIdx, isFallback: false, warnings: aliasHitWarnings(config, fastMatch.aliasHits) };
     }
   }
 
@@ -67,6 +89,7 @@ export function locateHeaderRow(aoa: AoaRow[], config: SheetConfig, rowOffset: n
       warnings.push(
         `${config.expectedName}: 예상 헤더 행(${config.expectedHeaderRow})이 아닌 ${r + rowOffset + 1}행에서 헤더를 찾았습니다.`
       );
+      warnings.push(...aliasHitWarnings(config, match.aliasHits));
       return { rowIndex: r, isFallback: true, warnings };
     }
   }
@@ -82,6 +105,7 @@ export function locateHeaderRow(aoa: AoaRow[], config: SheetConfig, rowOffset: n
       warnings.push(
         `${config.expectedName}: 예상 헤더 행(${config.expectedHeaderRow})이 아닌 ${r + rowOffset + 1}행에서 헤더를 찾았습니다.`
       );
+      warnings.push(...aliasHitWarnings(config, match.aliasHits));
       return { rowIndex: r, isFallback: true, warnings };
     }
   }

@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import type { NormalizedReviewRow } from "@/types/normalized";
 import { SHEET_CONFIGS } from "../workbook/sheet-config";
-import { columnIndex, findSheetByName, locateSheet, rowHasContent } from "../workbook/sheet-rows";
+import { findSheetByName, locateSheet, resolveColumnIndex, rowHasContent } from "../workbook/sheet-rows";
 import { parseFlexibleDateCell } from "../workbook/date-utils";
 import { parseMoney, parseText } from "./number";
 
@@ -25,7 +25,7 @@ export function normalizeReviewRows(workbook: XLSX.WorkBook): NormalizeReviewsRe
   if (!located) return { rows: [], warnings: [`${CONFIG.expectedName}: 헤더를 찾을 수 없습니다.`] };
 
   const { headerRow, dataRows, warnings } = located;
-  const col = (name: string) => columnIndex(headerRow, name);
+  const col = (name: string) => resolveColumnIndex(headerRow, name)?.index ?? -1;
   const idx = {
     productId: col("상품번호"),
     productName: col("상품명"),

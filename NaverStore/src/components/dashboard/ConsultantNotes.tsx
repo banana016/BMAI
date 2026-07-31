@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { logEvent } from "@/lib/audit/session-log";
 
 interface ConsultantNotesProps {
   storeKey: string;
@@ -36,6 +37,7 @@ export function ConsultantNotes({ storeKey }: ConsultantNotesProps) {
     const now = new Date().toISOString();
     window.localStorage.setItem(storageKey(storeKey), JSON.stringify({ text, savedAt: now }));
     setSavedAt(now);
+    logEvent("컨설턴트 코멘트 저장", storeKey);
   };
 
   return (

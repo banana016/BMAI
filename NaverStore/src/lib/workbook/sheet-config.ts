@@ -1,4 +1,5 @@
 import type { SheetKey } from "@/types/workbook";
+import { resolveAliases } from "./header-aliases";
 
 export interface SheetConfig {
   key: SheetKey;
@@ -137,14 +138,24 @@ export function normalizeHeaderCell(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-export function rowMatchesHeaderTokens(
-  row: unknown[] | undefined,
-  tokens: string[],
-  threshold: number
-): { matches: boolean; matchedTokens: string[] } {
-  if (!row) return { matches: false, matchedTokens: [] };
+export interface HeaderTokenMatch {
+  matches: boolean;
+  matchedTokens: string[];
+  /** Tokens that only matched via a non-canonical alias — a signal the workbook may be a different template revision. */
+  aliasHits: Array<{ token: string; matchedAlias: string }>;
+}
+
+export function rowMatchesHeaderTokens(row: unknown[] | undefined, tokens: string[], threshold: number): HeaderTokenMatch {
+  if (!row) return { matches: false, matchedTokens: [], aliasHits: [] };
   const cellSet = new Set(row.map(normalizeHeaderCell));
-  const matchedTokens = tokens.filter((t) => cellSet.has(t));
+  const matchedTokens: string[] = [];
+  const aliasHits: Array<{ token: string; matchedAlias: string }> = [];
+  for (const token of tokens) {
+    const matchedAlias = resolveAliases(token).find((alias) => cellSet.has(alias));
+    if (matchedAlias === undefined) continue;
+    matchedTokens.push(token);
+    if (matchedAlias !== token) aliasHits.push({ token, matchedAlias });
+  }
   const required = Math.max(1, Math.ceil(tokens.length * threshold));
-  return { matches: matchedTokens.length >= required, matchedTokens };
+  return { matches: matchedTokens.length >= required, matchedTokens, aliasHits };
 }
