@@ -4,10 +4,14 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import type { NormalizedReviewRow } from "@/types/normalized";
 import type { DateRange } from "@/lib/metrics/period";
 import {
+  computeNegativeKeywords,
+  computePositiveKeywords,
   computeProductProblems,
   computeRatingDistribution,
   computeReviewSummary,
   filterReviewsByRange,
+  summarizeReviewKeywordInsights,
+  type KeywordFrequency,
 } from "@/lib/analysis/reviews";
 import { formatByUnit } from "./format";
 
@@ -25,11 +29,30 @@ function StatTile({ label, value }: { label: string; value: string }) {
   );
 }
 
+function KeywordChip({ item, tone }: { item: KeywordFrequency; tone: "positive" | "negative" }) {
+  const toneClass =
+    tone === "positive"
+      ? "bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-300"
+      : "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300";
+  return (
+    <span
+      title={item.examples.join("\n\n")}
+      className={`inline-flex cursor-help items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${toneClass}`}
+    >
+      {item.word}
+      <span className="opacity-60">{item.count}</span>
+    </span>
+  );
+}
+
 export function ReviewsDetail({ rows, range }: ReviewsDetailProps) {
   const inRange = filterReviewsByRange(rows, range);
   const summary = computeReviewSummary(inRange);
   const distribution = computeRatingDistribution(inRange);
   const problems = computeProductProblems(inRange, 2);
+  const positiveKeywords = computePositiveKeywords(inRange, 12);
+  const negativeKeywords = computeNegativeKeywords(inRange, 12);
+  const keywordInsights = summarizeReviewKeywordInsights(positiveKeywords, negativeKeywords);
 
   return (
     <div className="flex flex-col gap-6">
@@ -59,6 +82,66 @@ export function ReviewsDetail({ rows, range }: ReviewsDetailProps) {
             평균 답글 소요일: {summary.averageReplyDays.toFixed(1)}일
           </p>
         )}
+      </div>
+
+      <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <p className="mb-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">고객 후기 키워드 분석</p>
+        <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">
+          평점 4~5점을 좋은 후기, 1~3점을 안좋은 후기로 나누어 자주 등장한 단어를 집계했습니다. 단어에 마우스를
+          올리면 실제 리뷰 예시를 볼 수 있습니다. 빈도 집계일 뿐이며 원인을 확정하지 않습니다.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-medium text-green-700 dark:text-green-400">좋은 후기에서 자주 나온 단어</p>
+            <div className="flex flex-wrap gap-2">
+              {positiveKeywords.length > 0 ? (
+                positiveKeywords.map((k) => <KeywordChip key={k.word} item={k} tone="positive" />)
+              ) : (
+                <p className="text-xs text-zinc-400 dark:text-zinc-500">데이터 없음</p>
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-medium text-red-700 dark:text-red-400">안좋은 후기에서 자주 나온 단어</p>
+            <div className="flex flex-wrap gap-2">
+              {negativeKeywords.length > 0 ? (
+                negativeKeywords.map((k) => <KeywordChip key={k.word} item={k} tone="negative" />)
+              ) : (
+                <p className="text-xs text-zinc-400 dark:text-zinc-500">데이터 없음</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <p className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">후기 기반 강화·보완 포인트</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-medium text-green-700 dark:text-green-400">강화할 점</p>
+            {keywordInsights.strengths.length > 0 ? (
+              <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-600 dark:text-zinc-300">
+                {keywordInsights.strengths.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">분석할 좋은 후기가 충분하지 않습니다.</p>
+            )}
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-medium text-red-700 dark:text-red-400">보완할 점</p>
+            {keywordInsights.improvements.length > 0 ? (
+              <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-600 dark:text-zinc-300">
+                {keywordInsights.improvements.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">분석할 안좋은 후기가 충분하지 않습니다.</p>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">

@@ -27,6 +27,7 @@ import { ReviewsDetail } from "./ReviewsDetail";
 import { buildInsightContext } from "@/lib/insights/context";
 import { generateInsights } from "@/lib/insights/rules";
 import { buildRoadmap } from "@/lib/simulation/roadmap";
+import { computeAdLinkedSalesShare } from "@/lib/metrics/ad-sales-share";
 import { PriorityTop3 } from "./PriorityTop3";
 import { InsightPanel } from "./InsightPanel";
 import { ScenarioSimulator } from "./ScenarioSimulator";
@@ -94,6 +95,11 @@ export function Dashboard({
   const insights = useMemo(() => generateInsights(insightContext), [insightContext]);
   const roadmapPhases = useMemo(() => buildRoadmap(insights), [insights]);
 
+  const adLinkedSalesShare = useMemo(() => {
+    const netSales = summary.kpis.find((k) => k.key === "netSales")?.current ?? null;
+    return computeAdLinkedSalesShare(netSales, insightContext.adFunnelCurrent.purchaseConversionSales);
+  }, [summary, insightContext]);
+
   const scenarioBaseline: ScenarioBaseline = useMemo(() => {
     const byKey = Object.fromEntries(summary.kpis.map((k) => [k.key, k]));
     return {
@@ -121,7 +127,11 @@ export function Dashboard({
       </p>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <HealthScore score={summary.compositeScore} dataCompleteness={summary.dataCompleteness} />
+        <HealthScore
+          score={summary.compositeScore}
+          dataCompleteness={summary.dataCompleteness}
+          adLinkedSalesShare={adLinkedSalesShare}
+        />
         {summary.kpis.map((kpi) => (
           <KpiCard
             key={kpi.key}

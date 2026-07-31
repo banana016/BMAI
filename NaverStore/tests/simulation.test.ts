@@ -35,6 +35,38 @@ describe("computeScenario", () => {
     expect(result.projectedSales).toBe(20_000 * 0.05 * 20_000);
     expect(result.projectedSales).not.toBe(baseline.traffic * baseline.conversionRate * baseline.aov);
   });
+
+  it("raising the ROAS slider (adCost held at baseline) increases projected sales by the ad-sales delta", () => {
+    const atBaseline = computeScenario(baseline, scenarioFromBaseline(baseline));
+    const higherRoas = { ...scenarioFromBaseline(baseline), roas: 400 };
+    const withHigherRoas = computeScenario(baseline, higherRoas);
+
+    const expectedDelta = (baseline.adCost * 400) / 100 - (baseline.adCost * baseline.roas) / 100;
+    expect(withHigherRoas.projectedAdSales).toBeGreaterThan(atBaseline.projectedAdSales);
+    expect(withHigherRoas.projectedSales).toBeCloseTo(atBaseline.projectedSales + expectedDelta);
+    expect(withHigherRoas.projectedIncrementalSales).toBeGreaterThan(atBaseline.projectedIncrementalSales);
+  });
+
+  it("lowering the ROAS slider decreases projected sales symmetrically", () => {
+    const atBaseline = computeScenario(baseline, scenarioFromBaseline(baseline));
+    const lowerRoas = { ...scenarioFromBaseline(baseline), roas: 100 };
+    const withLowerRoas = computeScenario(baseline, lowerRoas);
+
+    expect(withLowerRoas.projectedSales).toBeLessThan(atBaseline.projectedSales);
+  });
+
+  it("raising ad cost while holding ROAS at baseline also lifts projected sales", () => {
+    const atBaseline = computeScenario(baseline, scenarioFromBaseline(baseline));
+    const moreAdSpend = { ...scenarioFromBaseline(baseline), adCost: 2_000_000 };
+    const withMoreSpend = computeScenario(baseline, moreAdSpend);
+
+    expect(withMoreSpend.projectedSales).toBeGreaterThan(atBaseline.projectedSales);
+  });
+
+  it("stays exactly at the traffic×conversionRate×aov figure when ad sliders are untouched (no double counting at rest)", () => {
+    const result = computeScenario(baseline, scenarioFromBaseline(baseline));
+    expect(result.projectedSales).toBe(baseline.traffic * baseline.conversionRate * baseline.aov);
+  });
 });
 
 function insight(title: string, action: string, priority: number): Insight {

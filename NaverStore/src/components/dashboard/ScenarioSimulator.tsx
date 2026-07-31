@@ -38,7 +38,8 @@ export function ScenarioSimulator({ baseline }: ScenarioSimulatorProps) {
     <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <p className="mb-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">개선 시뮬레이션</p>
       <p className="mb-4 text-xs text-zinc-400 dark:text-zinc-500">
-        아래 결과는 예측이 아니라, 슬라이더로 입력한 가정에 따라 계산된 단순 시나리오입니다.
+        아래 결과는 예측이 아니라, 슬라이더로 입력한 가정에 따라 계산된 단순 시나리오입니다. 예상 매출 = 유입×전환율×객단가
+        + (광고비·ROAS를 기준값에서 바꿨을 때 늘거나 준 구매완료 광고매출만큼의 증감분).
       </p>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
