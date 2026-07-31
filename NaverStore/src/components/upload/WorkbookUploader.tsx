@@ -2,8 +2,17 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { DiagnosticSeverity, WorkbookDiagnosticsResult } from "@/types/workbook";
+import type { NormalizedAdRow, NormalizedSalesRow } from "@/types/normalized";
+import type { DateRange } from "@/lib/metrics/period";
+import { Dashboard } from "@/components/dashboard/Dashboard";
 
 type Status = "idle" | "parsing" | "done";
+
+interface DashboardData {
+  salesRows: NormalizedSalesRow[];
+  adRows: NormalizedAdRow[];
+  availableRange: DateRange;
+}
 
 const STATUS_STYLES: Record<DiagnosticSeverity, { label: string; className: string }> = {
   success: { label: "검증 성공", className: "border-green-600 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-300" },
@@ -20,6 +29,7 @@ export function WorkbookUploader() {
   const [status, setStatus] = useState<Status>("idle");
   const [isDragging, setIsDragging] = useState(false);
   const [result, setResult] = useState<WorkbookDiagnosticsResult | null>(null);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -27,6 +37,7 @@ export function WorkbookUploader() {
     setStatus("parsing");
     setFatalError(null);
     setResult(null);
+    setDashboardData(null);
 
     if (!file.name.toLowerCase().endsWith(".xlsx")) {
       setStatus("done");
@@ -48,6 +59,21 @@ export function WorkbookUploader() {
       const buffer = await file.arrayBuffer();
       const diagnostics = await diagnoseWorkbook(buffer, file.name);
       setResult(diagnostics);
+
+      const salesDateRange = diagnostics.sheets.find((s) => s.key === "sales")?.dateRange;
+      if (diagnostics.overallStatus !== "error" && salesDateRange) {
+        const [XLSX, { normalizeSalesRows }, { normalizeAdRows }] = await Promise.all([
+          import("xlsx"),
+          import("@/lib/normalize/sales"),
+          import("@/lib/normalize/ads"),
+        ]);
+        const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+        setDashboardData({
+          salesRows: normalizeSalesRows(workbook).rows,
+          adRows: normalizeAdRows(workbook).rows,
+          availableRange: { start: salesDateRange.min, end: salesDateRange.max },
+        });
+      }
     } catch (e) {
       setFatalError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -69,7 +95,7 @@ export function WorkbookUploader() {
   };
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-6">
+    <div className="flex w-full max-w-5xl flex-col gap-6">
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -110,6 +136,14 @@ export function WorkbookUploader() {
       )}
 
       {result && <DiagnosticsPreview result={result} />}
+
+      {dashboardData && (
+        <Dashboard
+          salesRows={dashboardData.salesRows}
+          adRows={dashboardData.adRows}
+          availableRange={dashboardData.availableRange}
+        />
+      )}
     </div>
   );
 }
