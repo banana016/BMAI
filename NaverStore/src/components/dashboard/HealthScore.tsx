@@ -3,11 +3,9 @@ import { TAG_COLORS, tagForScore } from "@/lib/scoring/score";
 interface HealthScoreProps {
   score: number | null;
   dataCompleteness: number;
-  /** 자연매출 대비 광고연계매출 비중(%) — null이면 계산 불가(자연매출 0 이하 등)로 표시. */
-  adLinkedSalesShare?: number | null;
 }
 
-export function HealthScore({ score, dataCompleteness, adLinkedSalesShare }: HealthScoreProps) {
+export function HealthScore({ score, dataCompleteness }: HealthScoreProps) {
   const tag = score === null ? "기준 필요" : tagForScore(score);
   const color = TAG_COLORS[tag];
 
@@ -21,12 +19,6 @@ export function HealthScore({ score, dataCompleteness, adLinkedSalesShare }: Hea
         {tag}
       </span>
       <p className="text-xs text-zinc-400 dark:text-zinc-500">데이터 완전성 {dataCompleteness}%</p>
-      {adLinkedSalesShare !== undefined && (
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
-          자연매출 대비 광고연계매출 비중{" "}
-          {adLinkedSalesShare === null ? "계산 불가" : `${adLinkedSalesShare.toFixed(1)}%`}
-        </p>
-      )}
     </div>
   );
 }

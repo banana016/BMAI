@@ -27,7 +27,7 @@ import { ReviewsDetail } from "./ReviewsDetail";
 import { buildInsightContext } from "@/lib/insights/context";
 import { generateInsights } from "@/lib/insights/rules";
 import { buildRoadmap } from "@/lib/simulation/roadmap";
-import { computeAdLinkedSalesShare } from "@/lib/metrics/ad-sales-share";
+import { computeAdSalesSplit } from "@/lib/metrics/ad-sales-share";
 import { PriorityTop3 } from "./PriorityTop3";
 import { InsightPanel } from "./InsightPanel";
 import { ScenarioSimulator } from "./ScenarioSimulator";
@@ -35,6 +35,7 @@ import { Roadmap } from "./Roadmap";
 import { ConsultantNotes } from "./ConsultantNotes";
 import { PrintButton } from "./PrintButton";
 import { PrintReportHeader } from "./PrintReportHeader";
+import { AdSalesSplitCard } from "./AdSalesSplitCard";
 
 interface DashboardProps {
   storeName: string | null;
@@ -95,9 +96,9 @@ export function Dashboard({
   const insights = useMemo(() => generateInsights(insightContext), [insightContext]);
   const roadmapPhases = useMemo(() => buildRoadmap(insights), [insights]);
 
-  const adLinkedSalesShare = useMemo(() => {
+  const adSalesSplit = useMemo(() => {
     const netSales = summary.kpis.find((k) => k.key === "netSales")?.current ?? null;
-    return computeAdLinkedSalesShare(netSales, insightContext.adFunnelCurrent.purchaseConversionSales);
+    return computeAdSalesSplit(netSales, insightContext.adFunnelCurrent.purchaseConversionSales);
   }, [summary, insightContext]);
 
   const scenarioBaseline: ScenarioBaseline = useMemo(() => {
@@ -127,11 +128,7 @@ export function Dashboard({
       </p>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <HealthScore
-          score={summary.compositeScore}
-          dataCompleteness={summary.dataCompleteness}
-          adLinkedSalesShare={adLinkedSalesShare}
-        />
+        <HealthScore score={summary.compositeScore} dataCompleteness={summary.dataCompleteness} />
         {summary.kpis.map((kpi) => (
           <KpiCard
             key={kpi.key}
@@ -140,6 +137,7 @@ export function Dashboard({
             onTargetInputChange={(raw) => setTargetInputs((prev) => ({ ...prev, [kpi.key]: raw }))}
           />
         ))}
+        <AdSalesSplitCard split={adSalesSplit} />
       </div>
 
       <KpiRadar kpis={summary.kpis} />
