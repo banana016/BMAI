@@ -12,6 +12,9 @@ interface EditableFields {
   action: string;
 }
 
+const DEFAULT_VISIBLE_COUNT = 3;
+const MIN_VISIBLE_COUNT = 1;
+
 /**
  * Keyed by insight.title rather than array index, so an edit stays attached
  * to "that insight" across re-renders and doesn't silently carry over onto a
@@ -20,22 +23,55 @@ interface EditableFields {
  * the dashboard's target-input/local-state pattern — nothing is persisted.
  */
 export function PriorityTop3({ insights }: PriorityTop3Props) {
-  const top3 = insights.slice(0, 3);
+  const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE_COUNT);
   const [edits, setEdits] = useState<Record<string, EditableFields>>({});
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
-  if (top3.length === 0) {
+  if (insights.length === 0) {
     return null;
   }
 
+  // Clamp against insights.length so the buttons' enabled state always
+  // matches what's actually on screen — the raw visibleCount can otherwise
+  // run ahead of what's renderable (e.g. requesting 3 when only 1 insight
+  // exists), which would leave "−" looking clickable with nothing to remove.
+  const effectiveCount = Math.min(visibleCount, insights.length);
+  const shown = insights.slice(0, effectiveCount);
+  const canIncrease = effectiveCount < insights.length;
+  const canDecrease = effectiveCount > MIN_VISIBLE_COUNT;
+
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <p className="mb-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">우선 해결 과제 TOP 3</p>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">우선 해결 과제</p>
+        <div className="flex items-center gap-2 print:hidden">
+          <button
+            type="button"
+            onClick={() => setVisibleCount(Math.max(MIN_VISIBLE_COUNT, effectiveCount - 1))}
+            disabled={!canDecrease}
+            aria-label="표시 개수 줄이기"
+            className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-300 text-zinc-600 hover:bg-zinc-100 disabled:opacity-30 disabled:hover:bg-transparent dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            −
+          </button>
+          <span className="w-4 text-center text-xs text-zinc-500 dark:text-zinc-400">{shown.length}</span>
+          <button
+            type="button"
+            onClick={() => setVisibleCount(Math.min(insights.length, effectiveCount + 1))}
+            disabled={!canIncrease}
+            aria-label="표시 개수 늘리기"
+            className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-300 text-zinc-600 hover:bg-zinc-100 disabled:opacity-30 disabled:hover:bg-transparent dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            +
+          </button>
+        </div>
+      </div>
       <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">
-        영향도(개선 잠재력)와 실행 용이성을 함께 반영한 순위입니다. 필요하면 직접 수정할 수 있습니다.
+        영향도(개선 잠재력)와 실행 용이성을 함께 반영한 순위입니다. +/− 버튼으로 표시 개수를 조절하고, 필요하면 직접
+        수정할 수 있습니다.
       </p>
       <ol className="flex flex-col gap-3">
-        {top3.map((insight, i) => {
+        {shown.map((insight, i) => {
           const key = insight.title;
           const edited = edits[key];
           const displayed = edited ?? { title: insight.title, action: insight.action };
