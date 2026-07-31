@@ -90,7 +90,7 @@ export function ScenarioSimulator({ baseline }: ScenarioSimulatorProps) {
       <button
         type="button"
         onClick={() => setAssumptions(scenarioFromBaseline(baseline))}
-        className="mt-4 text-xs text-blue-600 underline dark:text-blue-400"
+        className="mt-4 rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
       >
         현재 기준값으로 초기화
       </button>

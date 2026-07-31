@@ -157,6 +157,89 @@ export function summarizeReviewKeywordInsights(
   };
 }
 
+export interface ReviewNarrative {
+  paragraphs: string[];
+}
+
+function formatPercent(ratio: number | null): string {
+  return ratio !== null ? `${(ratio * 100).toFixed(1)}%` : "확인 불가";
+}
+
+function formatKeywordList(items: KeywordFrequency[], topN: number): string {
+  return items
+    .slice(0, topN)
+    .map((k) => `'${k.word}'(${k.count}건)`)
+    .join(", ");
+}
+
+/**
+ * Longer-form prose diagnosis for the reviews tab, built strictly from the same
+ * computed numbers as the chip/bullet sections above — no inferred causes, only
+ * what the review text and rating distribution themselves show (design doc 3.5).
+ */
+export function buildReviewNarrative(
+  summary: ReviewSummary,
+  positive: KeywordFrequency[],
+  negative: KeywordFrequency[],
+  problems: ProductProblemSummary[]
+): ReviewNarrative {
+  if (summary.count === 0) {
+    return { paragraphs: ["선택한 기간에 등록된 리뷰가 없어 종합 진단을 제공할 수 없습니다."] };
+  }
+
+  const paragraphs: string[] = [];
+
+  const ratingText =
+    summary.averageRating !== null ? `평균 평점은 ${summary.averageRating.toFixed(2)}점입니다` : "평균 평점은 확인할 수 없습니다";
+  paragraphs.push(
+    `선택한 기간 동안 등록된 리뷰는 총 ${summary.count.toLocaleString()}건이며, ${ratingText}. ` +
+      `이 중 1~3점 저평점 비중은 ${formatPercent(summary.lowRatingShare)}, 포토리뷰 비중은 ${formatPercent(
+        summary.photoShare
+      )}, 판매자 답글률은 ${formatPercent(summary.replyRate)}로 집계됩니다.` +
+      (summary.averageReplyDays !== null ? ` 답글이 달린 리뷰의 평균 응답 소요일은 ${summary.averageReplyDays.toFixed(1)}일입니다.` : "")
+  );
+
+  if (positive.length > 0) {
+    paragraphs.push(
+      `긍정 후기(평점 4~5점)에서는 ${formatKeywordList(positive, 5)} 등의 단어가 자주 등장했습니다. ` +
+        `고객이 반복적으로 언급한 표현인 만큼, 상세페이지나 마케팅 메시지에서 이 강점을 그대로 인용해 강조하면 신규 고객에게 신뢰를 주는 데 도움이 될 수 있습니다.`
+    );
+  } else {
+    paragraphs.push("긍정 후기로 분류할 만한 4~5점 리뷰 텍스트가 충분하지 않아, 강점 키워드는 이번 기간에는 확인되지 않았습니다.");
+  }
+
+  const repeatedProducts = problems.filter((p) => p.lowRatingCount >= 2).slice(0, 3);
+  if (negative.length > 0) {
+    const productClause =
+      repeatedProducts.length > 0
+        ? ` 특히 ${repeatedProducts.map((p) => p.productName).join(", ")} 상품에서 저평점 리뷰가 반복적으로 확인되어, 이 단어들과의 연관성을 우선 살펴볼 필요가 있습니다.`
+        : "";
+    paragraphs.push(
+      `반면 부정 후기(평점 1~3점)에서는 ${formatKeywordList(negative, 5)} 등의 단어가 반복적으로 나타났습니다.${productClause} ` +
+        `다만 이는 단어 등장 빈도를 집계한 결과일 뿐 실제 원인을 특정한 것은 아니므로, 리뷰 원문을 직접 확인해 정확한 원인을 판단해야 합니다.`
+    );
+  } else {
+    paragraphs.push("부정 후기로 분류할 만한 1~3점 리뷰 텍스트가 충분하지 않아, 이번 기간에는 반복되는 불만 키워드가 확인되지 않았습니다.");
+  }
+
+  if (positive.length > 0 || negative.length > 0) {
+    const positiveTotal = positive.reduce((sum, k) => sum + k.count, 0);
+    const negativeTotal = negative.reduce((sum, k) => sum + k.count, 0);
+    const balanceClause =
+      positiveTotal > negativeTotal
+        ? "긍정 언급 건수가 부정 언급 건수보다 많아, 전반적인 후기 반응은 우호적인 편으로 보입니다."
+        : positiveTotal < negativeTotal
+          ? "부정 언급 건수가 긍정 언급 건수보다 많아, 반복되는 불만 요인을 우선 점검할 필요가 있습니다."
+          : "긍정 언급과 부정 언급 건수가 비슷한 수준으로, 강점과 개선점이 함께 존재하는 것으로 보입니다.";
+    paragraphs.push(
+      `종합적으로 볼 때, 집계된 긍정 키워드 언급은 총 ${positiveTotal}건, 부정 키워드 언급은 총 ${negativeTotal}건입니다. ${balanceClause} ` +
+        "이 진단은 리뷰 텍스트의 단어 빈도와 평점 분포만을 근거로 한 것이므로, 실제 의사결정 전에는 반드시 원문 리뷰와 상품별 상세 데이터를 함께 확인하시기 바랍니다."
+    );
+  }
+
+  return { paragraphs };
+}
+
 export function computeProductProblems(rows: NormalizedReviewRow[], minReviews = 3): ProductProblemSummary[] {
   const byProduct = new Map<string, NormalizedReviewRow[]>();
   for (const r of rows) {

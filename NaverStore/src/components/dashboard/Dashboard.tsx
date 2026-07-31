@@ -137,10 +137,12 @@ export function Dashboard({
             onTargetInputChange={(raw) => setTargetInputs((prev) => ({ ...prev, [kpi.key]: raw }))}
           />
         ))}
-        <AdSalesSplitCard split={adSalesSplit} />
       </div>
 
-      <KpiRadar kpis={summary.kpis} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <AdSalesSplitCard split={adSalesSplit} />
+        <KpiRadar kpis={summary.kpis} />
+      </div>
 
       <div>
         <div className="mb-4 flex flex-wrap gap-2 border-b border-zinc-200 print:hidden dark:border-zinc-800">
@@ -164,7 +166,9 @@ export function Dashboard({
         {activeTab === "search" && <SearchDetail rows={searchRows} range={range} />}
         {activeTab === "ads" && <AdsDetail rows={adRows} range={range} />}
         {activeTab === "customers" && <CustomersDetail rows={customerRows} range={range} />}
-        {activeTab === "reviews" && <ReviewsDetail rows={reviewRows} range={range} />}
+        {activeTab === "reviews" && (
+          <ReviewsDetail key={`${range.start}-${range.end}`} rows={reviewRows} range={range} />
+        )}
       </div>
 
       <PriorityTop3 insights={insights} />

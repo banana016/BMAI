@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { NormalizedReviewRow } from "@/types/normalized";
 import type { DateRange } from "@/lib/metrics/period";
 import {
+  buildReviewNarrative,
   computeNegativeKeywords,
   computePositiveKeywords,
   computeProductProblems,
@@ -27,6 +29,20 @@ function StatTile({ label, value }: { label: string; value: string }) {
       <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{value}</p>
     </div>
   );
+}
+
+interface AiInsightSection {
+  title: string;
+  body: string;
+}
+
+function parseAiInsightSections(text: string): AiInsightSection[] {
+  const parts = text.split(/^##\s+/m).filter((part) => part.trim().length > 0);
+  if (parts.length === 0) return [{ title: "GPT 심층 분석 결과", body: text.trim() }];
+  return parts.map((part) => {
+    const [firstLine, ...rest] = part.split("\n");
+    return { title: firstLine.trim(), body: rest.join("\n").trim() };
+  });
 }
 
 function KeywordChip({ item, tone }: { item: KeywordFrequency; tone: "positive" | "negative" }) {
@@ -53,6 +69,35 @@ export function ReviewsDetail({ rows, range }: ReviewsDetailProps) {
   const positiveKeywords = computePositiveKeywords(inRange, 12);
   const negativeKeywords = computeNegativeKeywords(inRange, 12);
   const keywordInsights = summarizeReviewKeywordInsights(positiveKeywords, negativeKeywords);
+  const narrative = buildReviewNarrative(summary, positiveKeywords, negativeKeywords, problems);
+
+  const [aiInsight, setAiInsight] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function handleAiAnalysis() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch("/api/review-insight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reviews: inRange.map((r) => ({ rating: r.rating, content: r.content })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAiError(data.error ?? "분석 요청에 실패했습니다.");
+        return;
+      }
+      setAiInsight(data.insight);
+    } catch {
+      setAiError("네트워크 오류로 분석 요청에 실패했습니다.");
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -141,6 +186,49 @@ export function ReviewsDetail({ rows, range }: ReviewsDetailProps) {
               <p className="text-xs text-zinc-400 dark:text-zinc-500">분석할 안좋은 후기가 충분하지 않습니다.</p>
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <p className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">종합 진단</p>
+        <div className="space-y-3">
+          {narrative.paragraphs.map((paragraph, i) => (
+            <p key={i} className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+              {paragraph}
+            </p>
+          ))}
+        </div>
+
+        <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              선택한 기간의 리뷰 원문(평점 포함, 최대 {"400"}건)을 OpenAI API로 전송해 우수 후기·불만 후기를 각각 분석하고
+              종합 인사이트를 받아볼 수 있습니다. 작성자 정보나 주문번호는 애초에 수집하지 않으므로 전송되지 않습니다.
+            </p>
+            <button
+              type="button"
+              onClick={handleAiAnalysis}
+              disabled={aiLoading}
+              className="shrink-0 rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              {aiLoading ? "분석 중..." : "AI 심층 분석 받기 (GPT)"}
+            </button>
+          </div>
+
+          {aiError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{aiError}</p>}
+
+          {aiInsight && (
+            <div className="mt-3 space-y-3 rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/40">
+              {parseAiInsightSections(aiInsight).map((section, i) => (
+                <div key={i}>
+                  <p className="mb-1 text-xs font-semibold text-blue-700 dark:text-blue-300">{section.title}</p>
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-zinc-700 dark:text-zinc-200">
+                    {section.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
