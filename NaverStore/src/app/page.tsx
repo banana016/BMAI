@@ -3,7 +3,7 @@ import { WorkbookUploader } from "@/components/upload/WorkbookUploader";
 export default function Home() {
   return (
     <div className="flex min-h-screen flex-col items-center bg-zinc-50 px-4 py-16 dark:bg-black">
-      <div className="flex w-full max-w-3xl flex-col items-center gap-2 pb-10 text-center">
+      <div className="flex w-full max-w-3xl flex-col items-center gap-2 pb-10 text-center print:hidden">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
           스마트스토어 경영진단 대시보드
         </h1>

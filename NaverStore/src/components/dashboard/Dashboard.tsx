@@ -10,6 +10,7 @@ import type {
   NormalizedTrafficRow,
 } from "@/types/normalized";
 import type { CoreKpiKey, KpiTargets } from "@/types/dashboard";
+import type { ScenarioBaseline } from "@/types/simulation";
 import { defaultRecentPeriod, type DateRange } from "@/lib/metrics/period";
 import { buildDashboardSummary } from "@/lib/scoring/dashboard";
 import { KPI_ORDER, KPI_UNITS } from "@/lib/scoring/config";
@@ -25,10 +26,17 @@ import { CustomersDetail } from "./CustomersDetail";
 import { ReviewsDetail } from "./ReviewsDetail";
 import { buildInsightContext } from "@/lib/insights/context";
 import { generateInsights } from "@/lib/insights/rules";
+import { buildRoadmap } from "@/lib/simulation/roadmap";
 import { PriorityTop3 } from "./PriorityTop3";
 import { InsightPanel } from "./InsightPanel";
+import { ScenarioSimulator } from "./ScenarioSimulator";
+import { Roadmap } from "./Roadmap";
+import { ConsultantNotes } from "./ConsultantNotes";
+import { PrintButton } from "./PrintButton";
+import { PrintReportHeader } from "./PrintReportHeader";
 
 interface DashboardProps {
+  storeName: string | null;
   salesRows: NormalizedSalesRow[];
   trafficRows: NormalizedTrafficRow[];
   searchRows: NormalizedSearchRow[];
@@ -49,6 +57,7 @@ const DETAIL_TABS = [
 type DetailTabKey = (typeof DETAIL_TABS)[number]["key"];
 
 export function Dashboard({
+  storeName,
   salesRows,
   trafficRows,
   searchRows,
@@ -77,14 +86,34 @@ export function Dashboard({
     [salesRows, adRows, range, targets]
   );
 
-  const insights = useMemo(() => {
-    const context = buildInsightContext(summary, adRows, customerRows, reviewRows);
-    return generateInsights(context);
-  }, [summary, adRows, customerRows, reviewRows]);
+  const insightContext = useMemo(
+    () => buildInsightContext(summary, adRows, customerRows, reviewRows),
+    [summary, adRows, customerRows, reviewRows]
+  );
+
+  const insights = useMemo(() => generateInsights(insightContext), [insightContext]);
+  const roadmapPhases = useMemo(() => buildRoadmap(insights), [insights]);
+
+  const scenarioBaseline: ScenarioBaseline = useMemo(() => {
+    const byKey = Object.fromEntries(summary.kpis.map((k) => [k.key, k]));
+    return {
+      traffic: byKey.traffic?.current ?? 0,
+      conversionRate: byKey.conversionRate?.current ?? 0,
+      aov: byKey.aov?.current ?? 0,
+      currentSales: byKey.netSales?.current ?? 0,
+      adCost: insightContext.adFunnelCurrent.cost ?? 0,
+      roas: insightContext.adFunnelCurrent.purchaseRoas ?? byKey.purchaseRoas?.current ?? 0,
+    };
+  }, [summary, insightContext]);
 
   return (
     <div className="flex flex-col gap-6">
-      <PeriodSelector range={range} available={availableRange} onChange={setRange} />
+      <PrintReportHeader storeName={storeName} currentRange={summary.currentRange} />
+
+      <div className="flex items-center justify-between gap-3">
+        <PeriodSelector range={range} available={availableRange} onChange={setRange} />
+        <PrintButton />
+      </div>
 
       <p className="text-xs text-zinc-400 dark:text-zinc-500">
         직전 동일기간: {summary.previousRange.start} ~ {summary.previousRange.end} (전년동기 비교는 이 파일에 데이터가
@@ -106,7 +135,7 @@ export function Dashboard({
       <KpiRadar kpis={summary.kpis} />
 
       <div>
-        <div className="mb-4 flex flex-wrap gap-2 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="mb-4 flex flex-wrap gap-2 border-b border-zinc-200 print:hidden dark:border-zinc-800">
           {DETAIL_TABS.map((tab) => (
             <button
               key={tab.key}
@@ -136,6 +165,12 @@ export function Dashboard({
         <p className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">인사이트 패널</p>
         <InsightPanel insights={insights} />
       </div>
+
+      <ScenarioSimulator baseline={scenarioBaseline} />
+
+      <Roadmap phases={roadmapPhases} />
+
+      <ConsultantNotes key={storeName ?? "unknown"} storeKey={storeName ?? "unknown"} />
     </div>
   );
 }

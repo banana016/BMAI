@@ -34,7 +34,7 @@ export function KpiCard({ kpi, targetInput, onTargetInputChange }: KpiCardProps)
         <p className="text-xs text-zinc-400 dark:text-zinc-500">KPI 점수 {kpi.score.toFixed(0)}점</p>
       )}
 
-      <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+      <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 print:hidden">
         목표
         <input
           type="text"

@@ -16,6 +16,7 @@ import { Dashboard } from "@/components/dashboard/Dashboard";
 type Status = "idle" | "parsing" | "done";
 
 interface DashboardData {
+  storeName: string | null;
   salesRows: NormalizedSalesRow[];
   trafficRows: NormalizedTrafficRow[];
   searchRows: NormalizedSearchRow[];
@@ -92,6 +93,7 @@ export function WorkbookUploader() {
         ]);
         const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
         setDashboardData({
+          storeName: diagnostics.storeName,
           salesRows: normalizeSalesRows(workbook).rows,
           trafficRows: normalizeTrafficRows(workbook).rows,
           searchRows: normalizeSearchRows(workbook).rows,
@@ -130,7 +132,7 @@ export function WorkbookUploader() {
         }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={onDrop}
-        className={`flex flex-col items-center gap-4 rounded-xl border-2 border-dashed p-12 text-center transition-colors ${
+        className={`flex flex-col items-center gap-4 rounded-xl border-2 border-dashed p-12 text-center transition-colors print:hidden ${
           isDragging
             ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
             : "border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-900"
@@ -162,10 +164,15 @@ export function WorkbookUploader() {
         </div>
       )}
 
-      {result && <DiagnosticsPreview result={result} />}
+      {result && (
+        <div className="print:hidden">
+          <DiagnosticsPreview result={result} />
+        </div>
+      )}
 
       {dashboardData && (
         <Dashboard
+          storeName={dashboardData.storeName}
           salesRows={dashboardData.salesRows}
           trafficRows={dashboardData.trafficRows}
           searchRows={dashboardData.searchRows}
